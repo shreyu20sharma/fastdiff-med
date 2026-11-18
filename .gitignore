@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+data/
+checkpoints/*
+!checkpoints/.gitkeep
+results/_fid_*/
+*.pt
+.ipynb_checkpoints/
+.gradio/
