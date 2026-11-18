@@ -36,6 +36,7 @@ def parse_args(argv=None):
     p.add_argument("--log_every", type=int, default=100)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--no_amp", action="store_true")
+    p.add_argument("--fresh", action="store_true", help="retrain rounds even if students exist")
     return p.parse_args(argv)
 
 
@@ -56,8 +57,9 @@ def main(argv=None):
     teacher_guidance = args.guidance
 
     log_path = os.path.join(out_dir, "log.csv")
-    with open(log_path, "w", newline="") as f:
-        csv.writer(f).writerow(["round", "student_steps", "iter", "loss"])
+    if args.fresh or not os.path.exists(log_path):
+        with open(log_path, "w", newline="") as f:
+            csv.writer(f).writerow(["round", "student_steps", "iter", "loss"])
 
     n_teacher = args.start_steps
     rnd = 0
@@ -70,6 +72,14 @@ def main(argv=None):
         t_cur = torch.tensor(ts_student, device=device)
         t_mid = torch.tensor(ts_teacher[1::2], device=device)
         t_nxt = torch.tensor(ts_student[1:] + [-1], device=device)
+
+        path = os.path.join(out_dir, f"student_{n_student}step.pt")
+        if os.path.exists(path) and not args.fresh:  # resume: round already finished
+            print(f"[round {rnd}] found {path}, skipping", flush=True)
+            teacher = clone_frozen(load_model(path, device)[0])
+            teacher_guidance = 1.0
+            n_teacher = n_student
+            continue
 
         student = copy.deepcopy(teacher).train()
         for p in student.parameters():
@@ -112,7 +122,6 @@ def main(argv=None):
                 t0, running, k = time.time(), 0.0, 0
 
         student.eval()
-        path = os.path.join(out_dir, f"student_{n_student}step.pt")
         scfg = dict(cfg, distilled=True, steps=n_student, guidance_folded=args.guidance,
                     run_name=f"E{n_student}")
         atomic_save(dict(config=scfg, model=student.state_dict()), path)
