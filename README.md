@@ -99,6 +99,12 @@ cell for a ~5-minute smoke test.
 | [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/shreyu20sharma/fastdiff-med/blob/main/notebooks/03_benchmark_and_impact.ipynb) `03_benchmark_and_impact` | judge classifier, FID/latency benchmark, augmentation experiment, report | ~2 h |
 | [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/shreyu20sharma/fastdiff-med/blob/main/notebooks/04_demo_gradio.ipynb) `04_demo_gradio` | DermAugment Gradio demo (public link) and Hugging Face Space bundle | minutes |
 
+**Out of Colab GPU quota?** Run [00_pack_for_kaggle](notebooks/00_pack_for_kaggle.ipynb) on a Colab
+CPU runtime to zip the trained checkpoints, upload the zip as a Kaggle dataset, and run
+[kaggle_finish](notebooks/kaggle_finish.ipynb) (notebooks 02 + 03 in one run) with
+*Save & Run All*. It runs in the background on Kaggle's free GPU, so the laptop can be closed.
+`LITE = True` in the setup cell halves the GPU time of notebooks 02 and 03.
+
 The same steps from a shell:
 
 ```bash

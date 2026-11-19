@@ -8,3 +8,4 @@ results/_fid_*/
 *.pt
 .ipynb_checkpoints/
 .gradio/
+workdir/
