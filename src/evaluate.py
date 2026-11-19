@@ -114,8 +114,6 @@ def grid_labels(per_class=8):
 
 # ------------------------------------------------------------------ charts
 def plot_fid_vs_steps(rows, path):
-    import matplotlib
-    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(figsize=(7.5, 4.6), dpi=150, facecolor=SURFACE)
@@ -150,8 +148,6 @@ def plot_fid_vs_steps(rows, path):
 
 
 def plot_latency(rows, path):
-    import matplotlib
-    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     keep = [r for r in rows if r["name"] in ("A-ddpm-1000", "A-ddim-20", "D-ddim-20", "D-ddim-10")
@@ -178,8 +174,6 @@ def plot_latency(rows, path):
 
 
 def plot_loss_curves(ckpt_dir, path):
-    import matplotlib
-    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     runs = [r for r in ["A", "B", "C", "D"] if os.path.exists(os.path.join(ckpt_dir, r, "loss.csv"))]
@@ -203,8 +197,6 @@ def plot_loss_curves(ckpt_dir, path):
 
 
 def plot_sample_compare(grids, path):
-    import matplotlib
-    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     if not grids:

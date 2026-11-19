@@ -52,8 +52,6 @@ def oversample(x, y, deficit, seed):
 
 
 def plot(summary, path):
-    import matplotlib
-    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     settings = sorted({r["setting"] for r in summary}, key=lambda s: -float(s.rstrip("%")))
