@@ -13,6 +13,7 @@ Used three ways:
 import argparse
 import csv
 import os
+import random
 import sys
 import time
 
@@ -141,13 +142,18 @@ def real_grid(class_idx, n, seed=0, nrow=8):
 
 
 def generate_stream(engine, class_idx, n, seed=0, updates=20):
-    """Yields (done, step, total_steps, elapsed_s, x or None). Runs the sampler step by step."""
+    """Yields (done, step, total_steps, elapsed_s, x). Runs the sampler step by step.
+
+    While running, x is the current partly denoised batch (a live preview: static turning into an image);
+    at the end it is the final sample. Time spent preparing previews is excluded from elapsed_s.
+    """
     model, diffusion = engine["model"], engine["diffusion"]
     device = next(model.parameters()).device
     y = torch.full((n,), int(class_idx), dtype=torch.long, device=device)
     g = torch.Generator(device=device).manual_seed(int(seed))
     every = max(1, engine["steps"] // updates)
     t0 = time.perf_counter()
+    excluded = 0.0
     x = None
     with torch.no_grad(), autocast(device):
         for i, total, x, _ in sampler_iter(model, diffusion, y, engine["sampler"], engine["steps"],
@@ -155,10 +161,14 @@ def generate_stream(engine, class_idx, n, seed=0, updates=20):
             if (i + 1) % every == 0 and i + 1 < total:
                 if device.type == "cuda":
                     torch.cuda.synchronize()
-                yield False, i + 1, total, time.perf_counter() - t0, None
+                elapsed = time.perf_counter() - t0 - excluded
+                p0 = time.perf_counter()
+                preview = x.float().clamp(-1, 1).cpu()
+                excluded += time.perf_counter() - p0
+                yield False, i + 1, total, elapsed, preview
     if device.type == "cuda":
         torch.cuda.synchronize()
-    yield True, engine["steps"], engine["steps"], time.perf_counter() - t0, x.float().clamp(-1, 1).cpu()
+    yield True, engine["steps"], engine["steps"], time.perf_counter() - t0 - excluded, x.float().clamp(-1, 1).cpu()
 
 
 def _status(name, engine, done, step, total, secs, n):
@@ -261,31 +271,34 @@ def build_demo(engines, results_dir="results"):
     def show_real(k, n, seed):
         return real_grid(int(k), n, seed)
 
-    def run_one(k, n, name, seed):
-        real = show_real(k, n, seed)
-        if name not in engines:
-            yield None, "This version is not available right now.", real
-            return
-        k, n = int(k), int(n)
-        for done, step, total, secs, x in generate_stream(engines[name], k, n, seed):
-            status = _status(name, engines[name], done, step, total, secs, n)
-            yield (to_grid(x, nrow=min(n, 8)) if done else gr.update()), status, real
+    def pick_seed(seed, surprise):
+        return random.randint(1, 99_999) if surprise else int(seed or 0)
 
-    def run_all(k, n, seed):
-        k, n = int(k), int(n)
-        real = real_grid(k, n, seed, nrow=4)
-        imgs = [gr.update()] * len(ENGINE_ORDER)
+    def run_one(k, n, name, seed, surprise):
+        k, n, s = int(k), int(n), pick_seed(seed, surprise)
+        real = real_grid(k, n, s)
+        if name not in engines:
+            yield None, "This version is not available right now.", real, s
+            return
+        yield None, f"⏳ **{FRIENDLY[name]}**: starting from random static…", real, s  # clear the old result
+        for done, step, total, secs, x in generate_stream(engines[name], k, n, s):
+            status = _status(name, engines[name], done, step, total, secs, n)
+            yield to_grid(x, nrow=min(n, 8)), status, real, s  # live preview, then the final pictures
+
+    def run_all(k, n, seed, surprise):
+        k, n, s = int(k), int(n), pick_seed(seed, surprise)
+        real = real_grid(k, n, s, nrow=4)
+        imgs = [None] * len(ENGINE_ORDER)
         stats = [f"_{FRIENDLY[nm]}: waiting its turn…_" if nm in engines else f"_{FRIENDLY[nm]}: not available_"
                  for nm in ENGINE_ORDER]
-        yield (real, *imgs, *stats)
+        yield (real, *imgs, *stats, s)
         for j, nm in enumerate(ENGINE_ORDER):
             if nm not in engines:
                 continue
-            for done, step, total, secs, x in generate_stream(engines[nm], k, n, seed):
+            for done, step, total, secs, x in generate_stream(engines[nm], k, n, s):
                 stats[j] = _status(nm, engines[nm], done, step, total, secs, n)
-                if done:
-                    imgs[j] = to_grid(x, nrow=min(n, 4))
-                yield (real, *imgs, *stats)
+                imgs[j] = to_grid(x, nrow=min(n, 4))
+                yield (real, *imgs, *stats, s)
 
     with gr.Blocks(title="DermAugment · FastDiff-Med") as demo:
         gr.Markdown(INTRO)
@@ -296,24 +309,31 @@ def build_demo(engines, results_dir="results"):
                                       info="RARE = very few real photos exist, so extra pictures help most")
                     engine = gr.Radio(engine_choices, value=names[0] if names else None, label="② Speed")
                     n = gr.Slider(1, 32, value=8, step=1, label="How many pictures")
+                    surprise = gr.Checkbox(value=True, label="🎲 New pictures every click",
+                                           info="Untick to choose a variation number yourself")
                     seed = gr.Number(value=0, precision=0, label="Variation number",
-                                     info="Change it to get different pictures. The same number always "
-                                          "gives the same pictures.")
+                                     info="The number used last time is shown here. Untick 🎲 and keep it "
+                                          "to get exactly the same pictures again.")
                     go = gr.Button("③ Create pictures", variant="primary")
                     if BASELINE in engines and str(device) == "cpu":
                         gr.Markdown("_Tip: the 🐢 original version is very slow on a normal computer "
                                     "(minutes). That slowness is exactly what this project fixes._")
                 with gr.Column(scale=2):
-                    status = gr.Markdown("Your pictures will appear here.")
+                    status = gr.Markdown("Your pictures will appear here. While the AI works you'll "
+                                         "see random static slowly turning into skin spots.")
                     out = gr.Image(label="AI-made pictures", type="numpy", interactive=False)
                     gr.Markdown("**Real photos of the same condition**, for comparison. Real photos in this "
                                 "dataset are also tiny and soft, so the blur is normal and not a fault of the AI.")
                     real_out = gr.Image(label="Real photos", type="numpy", interactive=False)
 
             gr.Markdown("---\n### ⏱️ Speed race: all versions make the same pictures\n"
-                        "Each version draws the same pictures one after another, so you can compare their "
-                        "speed and quality with real photos. **Use 1–2 pictures**, because the 🐢 original "
-                        "version is slow.")
+                        "Each version starts from **the same random static**, one after another, so you can "
+                        "compare speed and quality fairly. **Use 1–2 pictures**, because the 🐢 original "
+                        "version is slow.\n\n"
+                        "💡 *Why do ⚡, ✨ and 🔧 make almost identical pictures?* The fast versions were "
+                        "trained to copy the 🔧 improved model's result in fewer steps, so the same starting "
+                        "static leads to the same picture. That's the proof the shortcut works. The 🐢 original "
+                        "is a separate model, so its pictures look different.")
             cmp_btn = gr.Button("Start the speed race")
             with gr.Row():
                 with gr.Column():
@@ -324,8 +344,8 @@ def build_demo(engines, results_dir="results"):
                     with gr.Column():
                         cmp_stats.append(gr.Markdown(f"**{FRIENDLY[nm]}**"))
                         cmp_imgs.append(gr.Image(label=FRIENDLY[nm], type="numpy", interactive=False))
-            go.click(run_one, [cls, n, engine, seed], [out, status, real_out])
-            cmp_btn.click(run_all, [cls, n, seed], [cmp_real] + cmp_imgs + cmp_stats)
+            go.click(run_one, [cls, n, engine, seed, surprise], [out, status, real_out, seed])
+            cmp_btn.click(run_all, [cls, n, seed, surprise], [cmp_real] + cmp_imgs + cmp_stats + [seed])
             cls.change(show_real, [cls, n, seed], real_out)
             demo.load(show_real, [cls, n, seed], real_out)
 
