@@ -24,16 +24,60 @@ for _p in (_HERE, os.path.dirname(_HERE)):  # works from app/ in the repo and fr
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
-from src.data import CLASS_NAMES, SHORT_NAMES, tensor_to_uint8  # noqa: E402
+from src.data import SHORT_NAMES, tensor_to_uint8  # noqa: E402
 from src.sampling import nfe_per_image, sampler_iter  # noqa: E402
 from src.utils import autocast, get_device, load_model  # noqa: E402
 
 BASELINE, FASTDIFF, STUDENT = "Baseline · DDPM-1000", "FastDiff · DDIM-20", "Student · 4 steps"
 STUDENT8 = "Student · 8 steps"
 ENGINE_ORDER = (STUDENT, STUDENT8, FASTDIFF, BASELINE)  # fastest first
-DISCLAIMER = ("⚠️ **Research and education only.** Images are synthetic 32×32 samples from a model "
-              "trained on DermaMNIST. They are not real patients and must not be used for diagnosis "
-              "or clinical decisions.")
+
+# Plain-language labels shown in the UI (internal engine names stay technical)
+FRIENDLY = {
+    STUDENT: "⚡ Instant (4 steps)",
+    STUDENT8: "✨ Sharper (8 steps)",
+    FASTDIFF: "🔧 Improved model (20 steps)",
+    BASELINE: "🐢 Original, slow (1000 steps)",
+}
+ENGINE_HELP = {
+    STUDENT: "our fastest version",
+    STUDENT8: "a little slower, a little sharper",
+    FASTDIFF: "our improved recipe before shortcut training",
+    BASELINE: "the standard method we started from",
+}
+# (plain name, what it is, training photos available)
+LESIONS = [
+    ("Actinic keratosis", "rough, scaly sun-damage patch that can turn into cancer", 228),
+    ("Basal cell carcinoma", "the most common skin cancer; grows slowly", 359),
+    ("Benign keratosis", "harmless 'age spot' type growth", 769),
+    ("Dermatofibroma", "harmless small firm bump", 80),
+    ("Melanoma", "the most dangerous type of skin cancer", 779),
+    ("Mole (nevus)", "an ordinary, harmless mole", 4693),
+    ("Vascular lesion", "red or purple spot made of blood vessels", 99),
+]
+
+
+def lesion_label(k):
+    name, what, n = LESIONS[k]
+    rare = "  · RARE" if n < 300 else ""
+    return f"{name}: {what}{rare}"
+
+
+INTRO = """# 🩺 DermAugment: AI-made example images of skin conditions
+
+**The problem:** computer programs that help spot skin diseases learn from example photos. Some diseases
+are **rare**, so there are very few photos of them, and the programs get bad at recognising them.
+
+**What this tool does:** it uses AI to **create new, realistic example pictures** of a chosen skin condition,
+so those programs get more practice on the rare ones. Our version does this in **seconds instead of
+minutes**, about 240× faster than the standard method.
+
+**How to use it:** ① pick a skin condition → ② pick a speed → ③ press **Create pictures**.
+"""
+
+DISCLAIMER = ("⚠️ **For research and learning only.** These are computer-made pictures, not real patients. "
+              "They are tiny (28×28 pixels) and **must never be used to diagnose anyone**. "
+              "If you are worried about a spot on your skin, see a doctor.")
 
 
 # ----------------------------------------------------------------------------- engines
@@ -118,11 +162,12 @@ def generate_stream(engine, class_idx, n, seed=0, updates=20):
 
 
 def _status(name, engine, done, step, total, secs, n):
-    calls = nfe_per_image(engine["sampler"], engine["steps"], engine["guidance"])
+    label = FRIENDLY.get(name, name)
     if not done:
-        return f"⏳ **{name}**: step {step}/{total} · {secs:.1f} s elapsed"
-    return (f"✅ **{name}**: {n} image{'s' if n > 1 else ''} in **{secs:.2f} s** · "
-            f"{engine['steps']} steps · {calls} network calls per image")
+        return f"⏳ **{label}**: drawing… step {step} of {total} · {secs:.1f} s so far"
+    calls = nfe_per_image(engine["sampler"], engine["steps"], engine["guidance"])
+    return (f"✅ **{label}**: made {n} picture{'s' if n > 1 else ''} in **{secs:.1f} seconds**"
+            f"<br><small>{engine['steps']} steps · {calls} AI calls per picture</small>")
 
 
 # ----------------------------------------------------------------------------- impact tab helpers
@@ -131,6 +176,51 @@ def _read_csv(path):
         return []
     with open(path, newline="") as f:
         return list(csv.DictReader(f))
+
+
+def plain_summary(results_dir):
+    """'What did we find?' in everyday words, with numbers read from the result CSVs."""
+    bench = {r["name"]: r for r in _read_csv(os.path.join(results_dir, "benchmark.csv"))}
+    summary = _read_csv(os.path.join(results_dir, "augmentation_summary.csv"))
+    times = _read_csv(os.path.join(results_dir, "gen_time.csv"))
+    if not (bench or summary):
+        return "_No results yet. Run the experiments (notebook 03) first._"
+    out = ["## What did we find?", ""]
+    base, fast = bench.get("A-ddpm-1000"), bench.get("E-ddim-4")
+    if base and fast:
+        b, f = float(base["single_latency_ms"]) / 1000, float(fast["single_latency_ms"]) / 1000
+        out.append(f"**1. Much faster.** One picture takes **{f:.2f} seconds** with our fast version, compared "
+                   f"with **{b:.0f} seconds** with the original method: about **{b / f:.0f}× faster**.")
+    t_fast = next((t for t in times if t["setting"] == "100%" and not t["engine"].startswith("Baseline")), None)
+    t_slow = next((t for t in times if t["setting"] == "100%" and t["engine"].startswith("Baseline")), None)
+    if t_fast and t_slow:
+        out.append(f"Making a full set of **{int(t_fast['n_images']):,} extra pictures** took "
+                   f"**{float(t_fast['seconds']):.0f} seconds** instead of about "
+                   f"**{float(t_slow['seconds']) / 60:.0f} minutes**.")
+    if base and fast:
+        out += ["", f"**2. Pictures still look right.** An independent checker program recognised the intended "
+                f"condition in **{float(fast['class_acc']):.0%}** of our fast pictures, vs "
+                f"**{float(base['class_acc']):.0%}** for the original slow method. The fast pictures are slightly "
+                "smoother and less detailed, so overall quality is a little lower."]
+    real = next((r for r in summary if r["setting"] == "20%" and r["arm"] == "real"), None)
+    syn = next((r for r in summary if r["setting"] == "20%" and r["arm"] == "real+synthetic"), None)
+    real100 = next((r for r in summary if r["setting"] == "100%" and r["arm"] == "real"), None)
+    syn100 = next((r for r in summary if r["setting"] == "100%" and r["arm"] == "real+synthetic"), None)
+    if real and syn:
+        gain = 100 * (float(syn["balanced_accuracy_mean"]) - float(real["balanced_accuracy_mean"]))
+        df0, df1 = float(real["recall_df_mean"]), float(syn["recall_df_mean"])
+        out += ["", "**3. The extra pictures help find rare conditions.** We trained a skin-condition "
+                "recognition program with and without our extra pictures, then tested it on real photos it had "
+                "never seen.",
+                f"* **When real photos are scarce** (20% of the data): it got **{gain:.1f} points better** on "
+                f"average across conditions. For the rarest one, dermatofibroma, it went from finding "
+                f"**{df0:.0%}** of cases to **{df1:.0%}**."]
+        if real100 and syn100:
+            g100 = 100 * (float(syn100["balanced_accuracy_mean"]) - float(real100["balanced_accuracy_mean"]))
+            out.append(f"* **With all the real photos:** a smaller gain ({g100:+.1f} points). The extra pictures "
+                       "matter most when real data is limited.")
+        out.append("* Simply **copying** the existing rare photos did **not** help. New pictures did.")
+    return "\n".join(out)
 
 
 def impact_markdown(results_dir):
@@ -164,29 +254,29 @@ def build_demo(engines, results_dir="results"):
     import gradio as gr
 
     names = [n for n in ENGINE_ORDER if n in engines]
-    choices = [f"{s} · {c}" for s, c in zip(SHORT_NAMES, CLASS_NAMES)]
+    lesion_choices = [(lesion_label(k), k) for k in range(len(LESIONS))]
+    engine_choices = [(f"{FRIENDLY[nm]}: {ENGINE_HELP[nm]}", nm) for nm in names]
     device = next(next(iter(engines.values()))["model"].parameters()).device if engines else "cpu"
-    real_note = ("**Real DermaMNIST test photos** of the same class, at the same 28×28 resolution and "
-                 "the same 4× enlargement. The softness you see is the dataset's resolution, not the generator.")
 
-    def show_real(cls, n, seed):
-        return real_grid(choices.index(cls), n, seed)
+    def show_real(k, n, seed):
+        return real_grid(int(k), n, seed)
 
-    def run_one(cls, n, name, seed):
-        real = show_real(cls, n, seed)
+    def run_one(k, n, name, seed):
+        real = show_real(k, n, seed)
         if name not in engines:
-            yield None, f"Engine **{name}** is not available (checkpoint missing).", real
+            yield None, "This version is not available right now.", real
             return
-        k, n = choices.index(cls), int(n)
+        k, n = int(k), int(n)
         for done, step, total, secs, x in generate_stream(engines[name], k, n, seed):
             status = _status(name, engines[name], done, step, total, secs, n)
             yield (to_grid(x, nrow=min(n, 8)) if done else gr.update()), status, real
 
-    def run_all(cls, n, seed):
-        k, n = choices.index(cls), int(n)
+    def run_all(k, n, seed):
+        k, n = int(k), int(n)
         real = real_grid(k, n, seed, nrow=4)
         imgs = [gr.update()] * len(ENGINE_ORDER)
-        stats = [f"_{nm}: waiting…_" if nm in engines else f"_{nm}: not available_" for nm in ENGINE_ORDER]
+        stats = [f"_{FRIENDLY[nm]}: waiting its turn…_" if nm in engines else f"_{FRIENDLY[nm]}: not available_"
+                 for nm in ENGINE_ORDER]
         yield (real, *imgs, *stats)
         for j, nm in enumerate(ENGINE_ORDER):
             if nm not in engines:
@@ -198,53 +288,94 @@ def build_demo(engines, results_dir="results"):
                 yield (real, *imgs, *stats)
 
     with gr.Blocks(title="DermAugment · FastDiff-Med") as demo:
-        gr.Markdown("# DermAugment: FastDiff-Med\n"
-                    "Class-conditional synthetic skin-lesion images for augmenting rare classes. "
-                    "Same U-Net, four engines: the 1000-step DDPM baseline, the re-engineered 20-step model "
-                    "(cosine schedule + v-prediction + trailing DDIM) and the distilled 8-step and 4-step "
-                    f"students with guidance folded in. Running on **{device}**.")
-        with gr.Tab("Generate"):
+        gr.Markdown(INTRO)
+        with gr.Tab("🎨 Create pictures"):
             with gr.Row():
                 with gr.Column(scale=1):
-                    cls = gr.Dropdown(choices, value=choices[3], label="Lesion class")
-                    n = gr.Slider(1, 32, value=8, step=1, label="Number of images")
-                    engine = gr.Radio(names, value=names[0] if names else None, label="Engine",
-                                      info="4 steps = fastest · 8 steps = sharper, still ~120× faster than the baseline")
-                    seed = gr.Number(value=0, precision=0, label="Seed")
-                    go = gr.Button("Generate", variant="primary")
-                    cmp_btn = gr.Button("Compare all engines")
+                    cls = gr.Dropdown(lesion_choices, value=3, label="① Skin condition",
+                                      info="RARE = very few real photos exist, so extra pictures help most")
+                    engine = gr.Radio(engine_choices, value=names[0] if names else None, label="② Speed")
+                    n = gr.Slider(1, 32, value=8, step=1, label="How many pictures")
+                    seed = gr.Number(value=0, precision=0, label="Variation number",
+                                     info="Change it to get different pictures. The same number always "
+                                          "gives the same pictures.")
+                    go = gr.Button("③ Create pictures", variant="primary")
                     if BASELINE in engines and str(device) == "cpu":
-                        gr.Markdown("_On CPU the 1000-step baseline takes minutes; that gap is the point. "
-                                    "Use 1–2 images when comparing._")
+                        gr.Markdown("_Tip: the 🐢 original version is very slow on a normal computer "
+                                    "(minutes). That slowness is exactly what this project fixes._")
                 with gr.Column(scale=2):
-                    status = gr.Markdown()
-                    out = gr.Image(label="Generated samples", type="numpy", interactive=False)
-                    gr.Markdown(real_note)
-                    real_out = gr.Image(label="Real photos (same class)", type="numpy", interactive=False)
-            gr.Markdown("### Compare all engines (same class, seed and number of images)")
+                    status = gr.Markdown("Your pictures will appear here.")
+                    out = gr.Image(label="AI-made pictures", type="numpy", interactive=False)
+                    gr.Markdown("**Real photos of the same condition**, for comparison. Real photos in this "
+                                "dataset are also tiny and soft, so the blur is normal and not a fault of the AI.")
+                    real_out = gr.Image(label="Real photos", type="numpy", interactive=False)
+
+            gr.Markdown("---\n### ⏱️ Speed race: all versions make the same pictures\n"
+                        "Each version draws the same pictures one after another, so you can compare their "
+                        "speed and quality with real photos. **Use 1–2 pictures**, because the 🐢 original "
+                        "version is slow.")
+            cmp_btn = gr.Button("Start the speed race")
             with gr.Row():
                 with gr.Column():
-                    gr.Markdown("**Real photos** (reference)")
-                    cmp_real = gr.Image(label="Real DermaMNIST", type="numpy", interactive=False)
+                    gr.Markdown("**📷 Real photos**")
+                    cmp_real = gr.Image(label="Real photos", type="numpy", interactive=False)
                 cmp_imgs, cmp_stats = [], []
                 for nm in ENGINE_ORDER:
                     with gr.Column():
-                        cmp_stats.append(gr.Markdown(f"_{nm}_"))
-                        cmp_imgs.append(gr.Image(label=nm, type="numpy", interactive=False))
+                        cmp_stats.append(gr.Markdown(f"**{FRIENDLY[nm]}**"))
+                        cmp_imgs.append(gr.Image(label=FRIENDLY[nm], type="numpy", interactive=False))
             go.click(run_one, [cls, n, engine, seed], [out, status, real_out])
             cmp_btn.click(run_all, [cls, n, seed], [cmp_real] + cmp_imgs + cmp_stats)
             cls.change(show_real, [cls, n, seed], real_out)
             demo.load(show_real, [cls, n, seed], real_out)
-        with gr.Tab("Impact"):
-            gr.Markdown(impact_markdown(results_dir))
-            charts = [("augmentation.png", "Augmentation: real vs real+oversample vs real+synthetic"),
-                      ("fid_vs_steps.png", "Sample quality vs. number of steps"),
-                      ("latency.png", "Time to generate one image"),
-                      ("sample_grid_compare.png", "Samples per class from each engine")]
+
+        with gr.Tab("📊 Results"):
+            gr.Markdown(plain_summary(results_dir))
+            charts = [("augmentation.png", "Does adding AI pictures help? (taller bars = better at "
+                                           "recognising all conditions, including rare ones)"),
+                      ("latency.png", "Time to make one picture (shorter = faster)"),
+                      ("sample_grid_compare.png", "Example pictures from each version (one row per condition)"),
+                      ("fid_vs_steps.png", "Picture quality vs. number of steps (lower = better)")]
             for fname, label in charts:
                 path = os.path.join(results_dir, fname)
                 if os.path.exists(path):
                     gr.Image(path, label=label, interactive=False)
+            with gr.Accordion("🔬 Detailed numbers (for experts)", open=False):
+                gr.Markdown(impact_markdown(results_dir))
+
+        with gr.Tab("ℹ️ How it works"):
+            gr.Markdown("""
+### How does the AI make pictures?
+It's a **diffusion model**. During training it practised on thousands of real skin photos: we added random
+"static" (noise) to each photo, and the AI learned to remove it. To make a **new** picture, it starts from pure
+static and removes the noise bit by bit until a realistic skin spot appears.
+
+### Why was it slow, and what did we change?
+The standard method removes the noise in **1000 tiny steps**, so 1000 runs of the AI per picture
+(2000 with the extra "follow the chosen condition" check). We made it fast in two stages:
+
+1. **A smarter recipe (1000 → 20 steps).** We changed *how* noise is added during training (a smoother
+   schedule) and *what* the AI predicts (a more stable target). Then each step does more useful work, so
+   20 steps are enough.
+2. **Shortcut training (20 → 4 steps).** A "student" copy of the AI watched the "teacher" and learned to do
+   two steps in one. We repeated this until only **4 steps** were needed. The student also learned the
+   "follow the chosen condition" check, so each step needs just one run of the AI.
+
+**Result:** 4 runs of the AI per picture instead of 2000, the same network and the same training data.
+
+### What are the limits?
+* Pictures are tiny (28×28 pixels), like the real dataset.
+* The 4-step pictures are slightly less detailed than the slow original's.
+* This is a research prototype, **not a medical tool**.
+""")
+            with gr.Accordion("🔬 Technical summary (for experts)", open=False):
+                gr.Markdown("Class-conditional U-Net trained on DermaMNIST (32×32). Baseline: linear β schedule, "
+                            "ε-prediction, 1000-step DDPM ancestral sampling with classifier-free guidance (w = 2). "
+                            "Stage 1: cosine schedule + v-prediction + DDIM with trailing timesteps (20 steps). "
+                            "Stage 2: progressive distillation 32 → 16 → 8 → 4 steps with guidance folded into the "
+                            "student, truncated-SNR weighting. Metrics: FID (torch-fidelity), class accuracy via a "
+                            "ResNet-18 judge, latency on a T4, and downstream ResNet-18 balanced accuracy / macro-F1 "
+                            f"with synthetic rare-class augmentation. Running on **{device}**.")
         gr.Markdown(DISCLAIMER)
     return demo
 
