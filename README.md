@@ -85,7 +85,8 @@ baseline's true FID is, if anything, slightly better than 16.7.
 * The **cosine schedule** alone (A → B) lowers FID at every budget, but with ε-prediction the samples lose
   class identity (class accuracy drops to 0.33–0.55).
 * Adding **v-prediction** (B → D) fixes that and lowers FID further: D is best at every step count.
-* Run C was not trained: the free Colab GPU quota ran out (see *Limitations*).
+* Run C is missing: the free Colab GPU quota ran out at 10,000 of its 12,000 steps, and a partly trained
+  run would not be a fair comparison, so it was left out (see *Limitations*).
 
 ![Samples](results/sample_grid_compare.png)
 
@@ -131,9 +132,16 @@ cell for a ~5-minute smoke test.
 
 **Out of Colab GPU quota?** Run [00_pack_for_kaggle](notebooks/00_pack_for_kaggle.ipynb) on a Colab
 CPU runtime to zip the trained checkpoints, upload the zip as a Kaggle dataset, and run
-[kaggle_finish](notebooks/kaggle_finish.ipynb) (notebooks 02 + 03 in one run) with
+[02_03_distill_and_benchmark_kaggle](notebooks/02_03_distill_and_benchmark_kaggle.ipynb) (notebooks 02 + 03 in one run) with
 *Save & Run All*. It runs in the background on Kaggle's free GPU, so the laptop can be closed.
 `LITE = True` in the setup cell halves the GPU time of notebooks 02 and 03.
+
+**Evidence of the actual runs**
+* [notebooks/executed/02_03_distill_and_benchmark_kaggle_executed.ipynb](notebooks/executed/02_03_distill_and_benchmark_kaggle_executed.ipynb):
+  the Kaggle run with all its outputs (logs, tables, charts).
+* [results/training_logs/](results/training_logs/): the loss logs of runs A, B and D (12,000 steps each, about
+  3.3 it/s on a Colab T4) and of the three distillation rounds. The loss curves are in
+  [results/loss_curves.png](results/loss_curves.png).
 
 The same steps from a shell:
 
@@ -193,8 +201,8 @@ weighting, and halves the step count each round. Details and equations are in
   sees little variety there and synthetic images may mostly recombine what it has seen. Class
   accuracy is scored by a judge that is itself imperfect on rare classes (its own test accuracy is
   reported for reference).
-* **Incomplete ablation and reduced evaluation.** Run C (linear + v) was not trained because the free Colab
-  GPU quota ran out, so the effect of v-prediction is shown only on top of the cosine schedule (B → D).
+* **Incomplete ablation and reduced evaluation.** Run C (linear + v) stopped at 10,000 of 12,000 steps when the
+  free Colab GPU quota ran out and was excluded, so the effect of v-prediction is shown only on top of the cosine schedule (B → D).
   Distillation and evaluation ran on Kaggle in the `LITE` setting (2,000 FID samples, 1,500 iterations per
   distillation round, 20 classifier epochs); the full setting would give tighter numbers.
 * **Quality gap at 4 steps.** The 4-step student's FID (28.7) is still worse than the 1000-step baseline's
