@@ -1,11 +1,13 @@
 # FastDiff-Med: 4-step diffusion for synthetic skin-lesion augmentation
 
-> **4 steps vs 1000 · ~500× fewer network calls · FID `‹S›` vs `‹B›` (baseline DDPM-1000) ·
-> `‹L›`× lower single-image latency · `‹+Z›` pts macro-F1 with synthetic rare-class augmentation**
+> **4 steps vs 1000 · 500× fewer network calls · 243× lower single-image latency (16.3 s → 67 ms on a T4) ·
+> FID 28.7 vs 16.7 for the 1000-step baseline · synthetic rare-class augmentation: +7.7 pts balanced accuracy
+> and +4.4 pts macro-F1 when only 20% of the real data is available**
 >
-> _Placeholders `‹…›` are filled from `results/*.csv` after the Colab runs (see `docs/phase3_results.md`)._
+> A 2,360-image synthetic training set takes **8 seconds** with the 4-step student vs **~65 minutes** with the
+> 1000-step baseline.
 
-**Demo:** `‹Hugging Face Space link›` · ![demo](docs/demo.gif)
+**Demo:** run `python -m app.app` (works on CPU) or [notebook 04](notebooks/04_demo_gradio.ipynb). See *How to run*.
 
 A class-conditional diffusion model on **DermaMNIST** (7 skin-lesion types, 32×32), made fast
 without changing the network:
@@ -42,45 +44,73 @@ flowchart LR
 
 ## Results
 
+All numbers are from one T4 GPU run (Kaggle) in the notebooks' `LITE` setting: FID on 2,000 samples per
+configuration (500 for the slow 1000-step baseline) against the real DermaMNIST test images, and class
+accuracy of samples scored by an independent ResNet-18 judge (its balanced accuracy on real test images is 0.60).
+
 ### Speed vs. quality
 
-| Engine | Steps | Network calls / image | FID ↓ | Class acc ↑ | Single-image latency (T4) |
-|---|---:|---:|---:|---:|---:|
-| Baseline · DDPM (A) | 1000 | 2000 | ‹› | ‹› | ‹› ms |
-| Baseline · DDIM (A) | 20 | 40 | ‹› | ‹› | ‹› ms |
-| **FastDiff · DDIM (D)** | 20 | 40 | ‹› | ‹› | ‹› ms |
-| **Student (E)** | **4** | **4** | ‹› | ‹› | ‹› ms |
+| Engine | Steps | Network calls / image | FID ↓ | Class acc ↑ | Single-image latency | Batched ms / image |
+|---|---:|---:|---:|---:|---:|---:|
+| Baseline · DDPM (A) | 1000 | 2000 | **16.7**¹ | 0.783 | 16,274 ms | 1,598 |
+| Baseline · DDIM (A) | 20 | 40 | 53.8 | 0.729 | 350 ms | 32.0 |
+| **FastDiff · DDIM (D, Stage 1)** | 20 | 40 | 24.1 | **0.812** | 337 ms | 32.0 |
+| Student (E, Stage 2) | 16 | 16 | 18.7 | 0.795 | 265 ms | 12.9 |
+| Student (E, Stage 2) | 8 | 8 | 22.3 | 0.792 | 137 ms | 6.4 |
+| **Student (E, Stage 2)** | **4** | **4** | 28.7 | 0.795 | **67 ms** | **3.2** |
+
+¹ Measured on 500 samples because it is so slow. FID is biased *upward* with fewer samples, so the
+baseline's true FID is, if anything, slightly better than 16.7.
+
+**What this shows**
+* At the **same 20 steps**, Stage 1 more than halves FID (53.8 → 24.1) and raises sample class accuracy
+  (0.73 → 0.81), with the same network and the same training budget.
+* The **4-step student** (4 network calls) beats the baseline at 20 steps (40 calls) on both FID and class
+  accuracy, and is **243× faster per image** than the original 1000-step sampler.
+* It does **not** fully match the 1000-step baseline's FID (28.7 vs 16.7); the 16-step student comes closest
+  (18.7). Class accuracy is on par (0.795 vs 0.783).
 
 ![FID vs steps](results/fid_vs_steps.png)
 ![Latency](results/latency.png)
 
 ### Ablation: which change matters? (same U-Net, same training budget, DDIM trailing)
 
-| Run | Schedule | Target | FID @ 5 | FID @ 10 | FID @ 20 | FID @ 50 |
+| Run | Schedule | Target | FID @ 5 steps | FID @ 10 steps | FID @ 20 steps | Class acc @ 20 |
 |---|---|---|---:|---:|---:|---:|
-| A (baseline) | linear | ε | ‹› | ‹› | ‹› | ‹› |
-| B | cosine | ε | ‹› | ‹› | ‹› | ‹› |
-| C | linear | v | ‹› | ‹› | ‹› | ‹› |
-| **D (Stage 1)** | cosine | v | ‹› | ‹› | ‹› | ‹› |
+| A (baseline) | linear | ε | 143.6 | 93.5 | 53.8 | 0.729 |
+| B | cosine | ε | 101.3 | 66.3 | 37.8 | 0.551 |
+| C | linear | v | — | — | — | — |
+| **D (Stage 1)** | cosine | v | **94.3** | **48.1** | **24.1** | **0.812** |
+
+* The **cosine schedule** alone (A → B) lowers FID at every budget, but with ε-prediction the samples lose
+  class identity (class accuracy drops to 0.33–0.55).
+* Adding **v-prediction** (B → D) fixes that and lowers FID further: D is best at every step count.
+* Run C was not trained: the free Colab GPU quota ran out (see *Limitations*).
 
 ![Samples](results/sample_grid_compare.png)
 
 ### Real-world impact: augmenting rare lesion classes
 
 ResNet-18 on the official DermaMNIST test split, mean ± std over 3 seeds. Every class except the
-largest is topped up to the size of the second-largest class.
+largest is topped up to the size of the second-largest class, using either duplicated real images
+(oversampling) or 4-step student samples.
 
-| Real data | Training set | Balanced accuracy ↑ | Macro-F1 ↑ |
-|---|---|---:|---:|
-| 100% | real | ‹› | ‹› |
-| 100% | real + oversampling | ‹› | ‹› |
-| 100% | **real + synthetic (student)** | ‹› | ‹› |
-| 20% | real | ‹› | ‹› |
-| 20% | real + oversampling | ‹› | ‹› |
-| 20% | **real + synthetic (student)** | ‹› | ‹› |
+| Real data | Training set | Balanced accuracy ↑ | Macro-F1 ↑ | Dermatofibroma recall |
+|---|---|---:|---:|---:|
+| 100% | real | 0.569 ± 0.028 | **0.565 ± 0.024** | 0.26 |
+| 100% | real + oversampling | 0.550 ± 0.035 | 0.535 ± 0.021 | 0.30 |
+| 100% | **real + synthetic (student)** | **0.587 ± 0.004** | 0.563 ± 0.021 | **0.41** |
+| 20% | real | 0.429 ± 0.019 | 0.427 ± 0.040 | 0.06 |
+| 20% | real + oversampling | 0.430 ± 0.017 | 0.388 ± 0.041 | 0.09 |
+| 20% | **real + synthetic (student)** | **0.506 ± 0.036** | **0.471 ± 0.050** | **0.35** |
 
-Generating the synthetic set took `‹›` s with the 4-step student vs ~`‹›` min with the 1000-step
-baseline.
+* **With little real data (20%)**, synthetic augmentation gives a clear gain: **+7.7 pts balanced accuracy**,
+  **+4.4 pts macro-F1**, and dermatofibroma (the rarest class) recall rises from 0.06 to 0.35. Plain
+  oversampling does not help (macro-F1 drops).
+* **With all the real data**, the gain is small: balanced accuracy +1.8 pts with much lower variance across
+  seeds, but macro-F1 is unchanged (0.565 vs 0.563, within noise).
+* Generating the 2,360 synthetic images took **8.2 s** with the 4-step student vs **~64.5 min** with the
+  1000-step baseline (extrapolated from 100 images), about **470× faster**.
 
 ![Augmentation](results/augmentation.png)
 
@@ -94,8 +124,8 @@ cell for a ~5-minute smoke test.
 
 | Notebook | What it does | T4 time |
 |---|---|---|
-| [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/shreyu20sharma/fastdiff-med/blob/main/notebooks/01_train_ablation.ipynb) `01_train_ablation` | dataset overview, trains runs A–D, loss curves | ~1.75 h |
-| [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/shreyu20sharma/fastdiff-med/blob/main/notebooks/02_distillation.ipynb) `02_distillation` | progressive distillation 32→16→8→4, grids per round | ~40 min |
+| [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/shreyu20sharma/fastdiff-med/blob/main/notebooks/01_train_ablation.ipynb) `01_train_ablation` | dataset overview, trains runs A–D, loss curves | ~1 h per run |
+| [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/shreyu20sharma/fastdiff-med/blob/main/notebooks/02_distillation.ipynb) `02_distillation` | progressive distillation 32→16→8→4, grids per round | ~1 h |
 | [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/shreyu20sharma/fastdiff-med/blob/main/notebooks/03_benchmark_and_impact.ipynb) `03_benchmark_and_impact` | judge classifier, FID/latency benchmark, augmentation experiment, report | ~2 h |
 | [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/shreyu20sharma/fastdiff-med/blob/main/notebooks/04_demo_gradio.ipynb) `04_demo_gradio` | DermAugment Gradio demo (public link) and Hugging Face Space bundle | minutes |
 
@@ -157,13 +187,20 @@ weighting, and halves the step count each round. Details and equations are in
 * **32×32 images.** DermaMNIST is heavily downsampled. FID uses ImageNet Inception features on
   upsampled tiny images, so it is useful for *relative* comparisons between our configurations but
   not comparable with published FIDs.
+* **Augmentation gains depend on data size.** The gain is clear with 20% of the real data but small with all
+  of it, and comes from one classifier (ResNet-18) and 3 seeds.
 * **Small, imbalanced data.** The rarest classes have only about 100 training images, so the model
   sees little variety there and synthetic images may mostly recombine what it has seen. Class
   accuracy is scored by a judge that is itself imperfect on rare classes (its own test accuracy is
   reported for reference).
-* **One dataset, short training.** Each run is about 25 min on a T4. Longer training would improve
-  absolute quality for every configuration. The augmentation result comes from one architecture
-  (ResNet-18) and 3 seeds.
+* **Incomplete ablation and reduced evaluation.** Run C (linear + v) was not trained because the free Colab
+  GPU quota ran out, so the effect of v-prediction is shown only on top of the cosine schedule (B → D).
+  Distillation and evaluation ran on Kaggle in the `LITE` setting (2,000 FID samples, 1,500 iterations per
+  distillation round, 20 classifier epochs); the full setting would give tighter numbers.
+* **Quality gap at 4 steps.** The 4-step student's FID (28.7) is still worse than the 1000-step baseline's
+  (16.7); 8–16 student steps close most of that gap at 2–4× the cost.
+* **One dataset, short training.** Each run is 12,000 steps (about 1 h on a Colab T4). Longer training would improve
+  absolute quality for every configuration.
 * **Distillation cost.** The 4-step student needs extra training (about 40 min) and inherits any
   biases of its teacher; guidance strength is fixed at distillation time.
 * **Not a medical device.** See the disclaimer below.

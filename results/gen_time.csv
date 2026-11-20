@@ -1,0 +1,5 @@
+setting,engine,n_images,measured_images,seconds,extrapolated
+100%,Student-4,2360,2360,8.2407,False
+100%,Baseline-1000 (DDPM),2360,100,3869.6246,True
+20%,Student-4,472,472,1.5090,False
+20%,Baseline-1000 (DDPM),472,100,772.8746,True

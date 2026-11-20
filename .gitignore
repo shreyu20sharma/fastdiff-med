@@ -9,3 +9,4 @@ results/_fid_*/
 .ipynb_checkpoints/
 .gradio/
 workdir/
+*.zip

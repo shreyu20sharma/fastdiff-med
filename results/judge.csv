@@ -1,0 +1,11 @@
+metric,value
+accuracy,0.7416
+balanced_accuracy,0.6045
+macro_f1,0.5794
+recall_akiec,0.5303
+recall_bcc,0.5340
+recall_bkl,0.5818
+recall_df,0.3913
+recall_mel,0.5336
+recall_nv,0.8330
+recall_vasc,0.8276
