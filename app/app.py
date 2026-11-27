@@ -1,7 +1,7 @@
 """DermAugment: Gradio demo for FastDiff-Med.
 
 Tabs: Home (the story), Create images (generate + download), Speed race (all engines side by side),
-Watch it work (step through the denoising process), Results, About the method.
+Watch it work (step through the denoising process).
 
 Used three ways:
   * notebook 04:  from app.app import build_demo, launch_demo, load_engines
@@ -438,9 +438,8 @@ def build_demo(engines, results_dir="results"):
                         "| Tab | What it does |\n|---|---|\n"
                         "| 🎨 **Create images** | Pick a skin condition and make new example images; download them |\n"
                         "| ⏱️ **Speed race** | All four versions make the same images, side by side with a timer |\n"
-                        "| 🔍 **Watch it work** | Step through the process: random noise slowly becomes a skin spot |\n"
-                        "| 📊 **Results** | What we measured and what it means |\n"
-                        "| 📖 **About the method** | How the AI works and what we changed, in plain words |")
+                        "| 🔍 **Watch it work** | Step through the process: random noise slowly becomes a skin spot |\n\n"
+                        "Full results, the method and its limits are in the project report.")
 
         # ------------------------------------------------------------------ Create
         with gr.Tab("🎨 Create images"):
@@ -526,58 +525,6 @@ def build_demo(engines, results_dir="results"):
                              [ex_current, ex_guesses, ex_step, ex_now, ex_guess, ex_text, ex_seed])
             ex_step.change(show_step, [ex_step, ex_current, ex_guesses], [ex_now, ex_guess, ex_text])
 
-        # ------------------------------------------------------------------ Results
-        with gr.Tab("📊 Results"):
-            gr.Markdown(plain_summary(results_dir))
-            charts = [("augmentation.png", "Does adding AI images help? (taller bars = better at "
-                                           "recognising all conditions, including rare ones)"),
-                      ("latency.png", "Time to make one image (shorter = faster)"),
-                      ("sample_grid_compare.png", "Example images from each version (one row per condition)"),
-                      ("fid_vs_steps.png", "Image quality vs. number of steps (lower = better)")]
-            for fname, label in charts:
-                path = os.path.join(results_dir, fname)
-                if os.path.exists(path):
-                    gr.Image(path, label=label, interactive=False)
-            with gr.Accordion("🔬 Detailed numbers (for experts)", open=False):
-                gr.Markdown(impact_markdown(results_dir))
-
-        # ------------------------------------------------------------------ About
-        with gr.Tab("📖 About the method"):
-            gr.Markdown("""
-### How does the AI make images?
-It's a **diffusion model**. During training it practised on thousands of real skin photos: we added random
-"static" (noise) to each photo, and the AI learned to remove it. To make a **new** image, it starts from pure
-static and removes the noise bit by bit until a realistic skin spot appears. You can watch this in the
-🔍 **Watch it work** tab.
-
-### Why was it slow, and what did we change?
-The standard method removes the noise in **1,000 tiny steps**, so 1,000 runs of the AI per image
-(2,000 with the extra "follow the chosen condition" check, called guidance). We made it fast in two stages:
-
-1. **A smarter recipe (1,000 → 20 steps).** We changed *how* noise is added during training (a smoother
-   "cosine" schedule) and *what* the AI predicts (a more stable target called "v"). Then each step does more
-   useful work, so 20 steps are enough.
-2. **Shortcut training (20 → 4 steps).** A "student" copy of the AI watched the "teacher" and learned to do
-   two steps in one. We repeated this until only **4 steps** were needed. The student also learned the
-   guidance check, so each step needs just one run of the AI.
-
-**Result:** 4 runs of the AI per image instead of 2,000, with the same network and the same training data.
-
-### What are the limits?
-* Images are tiny (28×28 pixels), like the real dataset.
-* The 4-step images are slightly less detailed than the slow original's.
-* The training photos come mostly from people with lighter skin, so the images (and programs trained on
-  them) may represent darker skin poorly.
-* This is a research prototype, **not a medical tool**.
-""")
-            with gr.Accordion("🔬 Technical summary (for experts)", open=False):
-                gr.Markdown("Class-conditional U-Net trained on DermaMNIST (32×32). Baseline: linear β schedule, "
-                            "ε-prediction, 1000-step DDPM ancestral sampling with classifier-free guidance (w = 2). "
-                            "Stage 1: cosine schedule + v-prediction + DDIM with trailing timesteps (20 steps). "
-                            "Stage 2: progressive distillation 32 → 16 → 8 → 4 steps with guidance folded into the "
-                            "student, truncated-SNR weighting. Metrics: FID (torch-fidelity), class accuracy via a "
-                            "ResNet-18 judge, latency on a T4, and downstream ResNet-18 balanced accuracy / macro-F1 "
-                            f"with synthetic rare-class augmentation. Running on **{device}**.")
         gr.Markdown(DISCLAIMER, elem_classes="note")
     return demo
 

@@ -7,7 +7,7 @@
 > A 2,360-image synthetic training set takes **8 seconds** with the 4-step student vs **~65 minutes** with the
 > 1000-step baseline.
 
-**Demo (DermAugment):** a Gradio app in six tabs: *Home* (the story and headline numbers), *Create images* (choose a skin condition and a speed, watch images form live, compare with real photos, download a ZIP of 28×28 PNGs), *Speed race* (all four engines side by side with timers), *Watch it work* (a slider through the denoising steps showing the model's guess of the final image), *Results* and *About the method*. Run `python -m app.app` (works on CPU) or [notebook 04](notebooks/04_demo_gradio.ipynb).
+**Demo (DermAugment):** a Gradio app in four tabs: *Home* (the story and headline numbers), *Create images* (choose a skin condition and a speed, watch images form live, compare with real photos, download a ZIP of 28×28 PNGs), *Speed race* (all four engines side by side with timers) and *Watch it work* (a slider through the denoising steps showing the model's guess of the final image). Run `python -m app.app` (works on CPU) or [notebook 04](notebooks/04_demo_gradio.ipynb).
 
 ![DermAugment](docs/screenshots/2_create.png)
 
