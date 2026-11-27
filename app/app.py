@@ -390,25 +390,36 @@ def build_demo(engines, results_dir="results"):
                 imgs[j] = to_grid(x, nrow=min(n, 4))
                 yield (real, *imgs, *stats, s)
 
-    def explore(k, seed, surprise):
+    def blank_like(img):
+        """Plain grey panel shown on the right at step 0, before the AI has made any guess."""
+        return np.full_like(img, 225)
+
+    def explore(k, target, seed, surprise):
+        """Make the frames, then play them as an animation from step 0 up to the step chosen on the slider."""
         s = pick_seed(seed, surprise)
+        yield ([], [], gr.update(), None, None, "⏳ Creating four images from random static…", s)
         current, guess = denoise_frames(engines[explorer_engine], int(k), 4, s)
+        guess[0] = blank_like(current[0])
         last = len(current) - 1
-        return (current, guess, gr.update(maximum=last, value=0, interactive=True),
-                current[0], None, step_text(0, last), s)
+        target = last if not target else min(int(target), last)
+        for i in range(target + 1):
+            yield (current, guess, gr.update(maximum=last, value=i), current[i], guess[i],
+                   step_text(i, last), s)
+            time.sleep(0.35 if i < target else 0)
 
     def step_text(i, last):
         if i == 0:
-            return ("**Step 0: pure random static.** Every picture starts as noise. Move the slider to the right "
-                    "to watch the AI remove it step by step.")
+            return ("**Step 0: pure random static.** Every picture starts as noise. The AI has not looked yet, so "
+                    "there is no guess on the right.")
         if i == last:
-            return f"**Step {i} of {last}: finished.** The noise is gone and four new skin-spot images remain."
+            return (f"**Step {i} of {last}: finished.** The noise is gone and four new skin-spot images remain. "
+                    "Drag the slider back to replay any step.")
         return (f"**Step {i} of {last}.** Left: the image so far, still partly noisy. Right: the AI's current "
                 "guess of the finished image. Early guesses are blurry outlines; each step sharpens them.")
 
     def show_step(i, current, guess):
         if not current:
-            return None, None, "Press **Run** first."
+            return None, None, (f"Step {int(i)} chosen. Press **Run** and the animation will stop at this step.")
         i = int(i)
         return current[min(i, len(current) - 1)], guess[min(i, len(guess) - 1)], step_text(i, len(current) - 1)
 
@@ -507,13 +518,16 @@ def build_demo(engines, results_dir="results"):
         # ------------------------------------------------------------------ Watch it work
         with gr.Tab("🔍 Watch it work"):
             gr.Markdown("A diffusion model starts from **pure random noise** and removes a little at each step. "
-                        "Press **Run**, then drag the slider to move through the steps. On the right you can see "
-                        "what the AI *thinks* the finished image will look like at that moment.")
+                        "Press **Run** to watch it play step by step. Afterwards, drag the slider to replay any "
+                        "step. You can also set the slider first and Run will stop at that step. On the right you "
+                        "can see what the AI *thinks* the finished image will look like at that moment.")
             with gr.Row():
                 ex_cls = gr.Dropdown(lesion_choices, value=4, label="Skin condition", scale=3)
                 ex_btn = gr.Button("Run", variant="primary", scale=1)
+            ex_last = engines[explorer_engine]["steps"] if explorer_engine else 20
             ex_text = gr.Markdown("Press **Run** to start.")
-            ex_step = gr.Slider(0, 20, value=0, step=1, label="Step", interactive=False)
+            ex_step = gr.Slider(0, ex_last, value=ex_last, step=1, label="Step (where the animation stops)",
+                                interactive=True)
             with gr.Row():
                 ex_now = gr.Image(label="The image so far", type="numpy", interactive=False)
                 ex_guess = gr.Image(label="The AI's guess of the finished image", type="numpy", interactive=False)
@@ -523,9 +537,9 @@ def build_demo(engines, results_dir="results"):
             ex_current, ex_guesses = gr.State([]), gr.State([])
             ex_seed, ex_surprise = gr.State(0), gr.State(True)
             if explorer_engine:
-                ex_btn.click(explore, [ex_cls, ex_seed, ex_surprise],
+                ex_btn.click(explore, [ex_cls, ex_step, ex_seed, ex_surprise],
                              [ex_current, ex_guesses, ex_step, ex_now, ex_guess, ex_text, ex_seed])
-            ex_step.change(show_step, [ex_step, ex_current, ex_guesses], [ex_now, ex_guess, ex_text])
+            ex_step.input(show_step, [ex_step, ex_current, ex_guesses], [ex_now, ex_guess, ex_text])
 
         gr.Markdown(DISCLAIMER, elem_classes="note")
     return demo
