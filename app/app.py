@@ -446,7 +446,7 @@ def build_demo(engines, results_dir="results"):
             with gr.Row():
                 with gr.Column(scale=4):
                     with gr.Group():
-                        cls = gr.Dropdown(lesion_choices, value=3, label="① Skin condition",
+                        cls = gr.Dropdown(lesion_choices, value=6, label="① Skin condition",
                                           info="RARE = very few real photos exist, so extra images help most")
                         engine = gr.Radio(engine_choices, value=names[0] if names else None, label="② Speed")
                         n = gr.Slider(1, 32, value=8, step=1, label="③ How many images")
@@ -481,7 +481,7 @@ def build_demo(engines, results_dir="results"):
                         "another, so you can compare speed and quality fairly. Use **1–2 images**, because the "
                         "🐢 original version is slow.")
             with gr.Row():
-                race_cls = gr.Dropdown(lesion_choices, value=3, label="Skin condition", scale=3)
+                race_cls = gr.Dropdown(lesion_choices, value=6, label="Skin condition", scale=3)
                 race_n = gr.Slider(1, 8, value=2, step=1, label="How many images", scale=2)
                 race_btn = gr.Button("Start the race", variant="primary", scale=1)
             with gr.Row():
