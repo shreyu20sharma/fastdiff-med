@@ -7,9 +7,9 @@
 > A 2,360-image synthetic training set takes **8 seconds** with the 4-step student vs **~65 minutes** with the
 > 1000-step baseline.
 
-**Demo (DermAugment):** pick a lesion class and an engine (1000-step baseline, 20-step FastDiff, 8- or 4-step
-student) and watch the live timer, with real DermaMNIST photos of the same class shown for reference.
-Run `python -m app.app` (works on CPU) or [notebook 04](notebooks/04_demo_gradio.ipynb).
+**Demo (DermAugment):** a Gradio app in six tabs: *Home* (the story and headline numbers), *Create images* (choose a skin condition and a speed, watch images form live, compare with real photos, download a ZIP of 28×28 PNGs), *Speed race* (all four engines side by side with timers), *Watch it work* (a slider through the denoising steps showing the model's guess of the final image), *Results* and *About the method*. Run `python -m app.app` (works on CPU) or [notebook 04](notebooks/04_demo_gradio.ipynb).
+
+![DermAugment](docs/screenshots/2_create.png)
 
 A class-conditional diffusion model on **DermaMNIST** (7 skin-lesion types, 32×32), made fast
 without changing the network:
