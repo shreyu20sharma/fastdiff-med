@@ -366,7 +366,7 @@ def build_demo(engines, results_dir="results"):
             return
         yield (None, f"⏳ **{FRIENDLY[name]}**: starting from random static…", real, s,
                gr.update(value=None, visible=False))
-        for done, step, total, secs, x in generate_stream(engines[name], k, n, s):
+        for done, step, total, secs, x in generate_stream(engines[name], k, n, s, updates=100):
             status = _status(name, engines[name], done, step, total, secs, n)
             if done:
                 yield to_grid(x, nrow=min(n, 8)), status, real, s, gr.update(value=save_zip(x, k, name, s), visible=True)
@@ -383,7 +383,9 @@ def build_demo(engines, results_dir="results"):
         for j, nm in enumerate(ENGINE_ORDER):
             if nm not in engines:
                 continue
-            for done, step, total, secs, x in generate_stream(engines[nm], k, n, s):
+            stats[j] = f"⏳ **{FRIENDLY[nm]}**: starting from random static…"
+            yield (real, *imgs, *stats, s)
+            for done, step, total, secs, x in generate_stream(engines[nm], k, n, s, updates=100):
                 stats[j] = _status(nm, engines[nm], done, step, total, secs, n)
                 imgs[j] = to_grid(x, nrow=min(n, 4))
                 yield (real, *imgs, *stats, s)
