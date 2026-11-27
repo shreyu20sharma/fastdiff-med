@@ -27,7 +27,7 @@ without changing the network:
 Course project, *Generative AI*, Phases 1–4:
 [comparative study](docs/phase1_comparative_study.md) ·
 [bottleneck and proposal](docs/phase2_proposal.md) ·
-[results](docs/phase3_results.md) · [build plan](docs/BUILD_PLAN.md)
+[results](docs/phase3_results.md)
 
 ## Pipeline
 
@@ -121,29 +121,20 @@ Full tables, including per-class recall and sample accuracy: **[docs/phase3_resu
 
 ## How to run
 
-All training runs on a free **Colab T4**. Every notebook clones this repo, saves checkpoints and
-results to `MyDrive/fastdiff-med/` and resumes after a disconnect. Set `QUICK = True` in the setup
-cell for a ~5-minute smoke test.
+Training ran on a free **Colab T4** (runs A, B, D) and distillation plus benchmarking on a free
+**Kaggle** GPU. Every notebook detects whether it is on Colab or Kaggle, saves checkpoints and results,
+and resumes after a disconnect. Set `QUICK = True` in the setup cell for a ~5-minute smoke test, or
+`LITE = True` to halve the GPU time of notebook 02_03.
 
-| Notebook | What it does | T4 time |
+| Notebook | What it does | GPU time |
 |---|---|---|
-| [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/shreyu20sharma/fastdiff-med/blob/main/notebooks/01_train_ablation.ipynb) `01_train_ablation` | dataset overview, trains runs A–D, loss curves | ~1 h per run |
-| [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/shreyu20sharma/fastdiff-med/blob/main/notebooks/02_distillation.ipynb) `02_distillation` | progressive distillation 32→16→8→4, grids per round | ~1 h |
-| [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/shreyu20sharma/fastdiff-med/blob/main/notebooks/03_benchmark_and_impact.ipynb) `03_benchmark_and_impact` | judge classifier, FID/latency benchmark, augmentation experiment, report | ~2 h |
-| [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/shreyu20sharma/fastdiff-med/blob/main/notebooks/04_demo_gradio.ipynb) `04_demo_gradio` | DermAugment Gradio demo (public link) and Hugging Face Space bundle | minutes |
+| [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/shreyu20sharma/fastdiff-med/blob/main/notebooks/01_train_ablation.ipynb) `01_train_ablation` | dataset overview, trains ablation runs A–D, loss curves | ~1 h per run |
+| [`02_03_distill_and_benchmark_kaggle`](notebooks/02_03_distill_and_benchmark_kaggle.ipynb) | progressive distillation 32→16→8→4, judge classifier, FID/latency benchmark, augmentation experiment, report. Saved **with the outputs of the actual Kaggle run** (logs, tables, charts) | ~3 h |
+| [![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/shreyu20sharma/fastdiff-med/blob/main/notebooks/04_demo_gradio.ipynb) `04_demo_gradio` | DermAugment Gradio demo (public link) | minutes |
 
-**Out of Colab GPU quota?** Run [00_pack_for_kaggle](notebooks/00_pack_for_kaggle.ipynb) on a Colab
-CPU runtime to zip the trained checkpoints, upload the zip as a Kaggle dataset, and run
-[02_03_distill_and_benchmark_kaggle](notebooks/02_03_distill_and_benchmark_kaggle.ipynb) (notebooks 02 + 03 in one run) with
-*Save & Run All*. It runs in the background on Kaggle's free GPU, so the laptop can be closed.
-`LITE = True` in the setup cell halves the GPU time of notebooks 02 and 03.
-
-**Evidence of the actual runs**
-* [notebooks/executed/02_03_distill_and_benchmark_kaggle_executed.ipynb](notebooks/executed/02_03_distill_and_benchmark_kaggle_executed.ipynb):
-  the Kaggle run with all its outputs (logs, tables, charts).
-* [results/training_logs/](results/training_logs/): the loss logs of runs A, B and D (12,000 steps each, about
-  3.3 it/s on a Colab T4) and of the three distillation rounds. The loss curves are in
-  [results/loss_curves.png](results/loss_curves.png).
+The loss logs of runs A, B and D (12,000 steps each, about 3.3 it/s on a T4) and of the three
+distillation rounds are in [results/training_logs/](results/training_logs/); the curves are in
+[results/loss_curves.png](results/loss_curves.png).
 
 The same steps from a shell:
 
@@ -175,7 +166,7 @@ src/
   augment_experiment.py real vs real+oversample vs real+synthetic
   report.py             writes docs/phase3_results.md from the CSVs
 app/app.py              DermAugment Gradio UI (Colab, local or Hugging Face Spaces)
-notebooks/              the four Colab notebooks above
+notebooks/              the three notebooks above
 tests/                  diffusion maths and sampler tests
 results/                charts and CSVs from the Colab runs
 ```

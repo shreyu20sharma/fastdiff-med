@@ -10,3 +10,7 @@ results/_fid_*/
 .gradio/
 workdir/
 *.zip
+
+# personal files, not for the repo
+docs/DermAugment_Demo_Script.pdf
+~$*
